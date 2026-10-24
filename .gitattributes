@@ -6,3 +6,6 @@ go.sum text eol=lf
 *.yml text eol=lf
 LICENSE text eol=lf
 NOTICE text eol=lf
+
+# Provenance tests hash this audited snapshot byte-for-byte.
+third_party/xnet/** -text
