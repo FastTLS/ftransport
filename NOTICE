@@ -1,0 +1,10 @@
+ftransport
+Copyright 2026 FastTLS contributors
+
+This product includes software developed by the Go Authors and distributed
+under the BSD 3-Clause License. The reduced x/net source snapshot and module
+dependencies are mapped in SOURCES.md. License copies, the snapshot manifest,
+and its local change record are available under third_party/.
+
+This product's test suite uses uTLS, also distributed under a BSD-style
+license. See third_party/utls.LICENSE.
