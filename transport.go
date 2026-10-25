@@ -462,11 +462,13 @@ func (t *Transport) RoundTrip(request *http.Request) (*http.Response, error) {
 	var stateMu sync.Mutex
 	var observedState *tls.ConnectionState
 	trace := &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) {
-		if conn, ok := info.Conn.(interface{ ConnectionState() tls.ConnectionState }); ok {
+		if conn, ok := info.Conn.(interface{ ConnectionState() tls.ConnectionState }); ok && request.URL.Scheme == "https" {
 			state := cloneTLSState(conn.ConnectionState())
-			stateMu.Lock()
-			observedState = &state
-			stateMu.Unlock()
+			if state.HandshakeComplete {
+				stateMu.Lock()
+				observedState = &state
+				stateMu.Unlock()
+			}
 		}
 	}}
 	ctx = httptrace.WithClientTrace(ctx, trace)
@@ -536,6 +538,10 @@ func (t *Transport) begin(cancel context.CancelCauseFunc, body *trackedRequestBo
 			delete(t.active, id)
 			closed := t.closed
 			t.mu.Unlock()
+			// Both upload and response have finished. Release the child context
+			// from its parent only now, so early duplex responses cannot cancel
+			// an upload that is still in progress.
+			cancel(nil)
 			t.stats.active.Add(-1)
 			t.stats.completed.Add(1)
 			if closed {
