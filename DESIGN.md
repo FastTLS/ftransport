@@ -1,6 +1,6 @@
 # ftransport F0–F2 设计决策
 
-日期：2026-10-24。状态：F3 fastls/FFI 本地集成候选已实现；下一阶段为 F4 发布验证。
+日期：2026-10-24。状态：F3 fastls/FFI 本地集成候选已实现；F4 开发验证进行中，尚未发布。
 
 ## 已决定的边界
 
@@ -96,3 +96,11 @@ F2 真实 TCP peer 测试逐项解码 H1 字段和 H2 帧/HPACK，覆盖 H1 同�
 ## 下一批工作
 
 F4 发布并固定 ftransport 与 fastls 的审阅提交，运行完整原生 FFI 多平台矩阵、race、稳定性和性能基线；本地集成已完成 profile 配置转换、标准 Request/Response/Cookie、代理、timeout/trace 与 FFI 桥接，并保留 WS/H3 能力。
+
+## F4 本地热点优化（2026-10-25）
+
+首批优化保持公开防御性复制契约不变，内部直接读取 `WithRequestOptions` 存储的不可变值，并预计算静态 HTTP/2 伪头顺序。HTTP/1 头重排不再逐行复制和生成小写名称，也不再无条件复制完整头块；新增基准和逐字节测试约束顺序、调用方指定的大小写、重复值、输入不可变性及头正文同批写入。
+
+Windows amd64、Go 1.26.10、Ryzen 9 7900X 的五轮本地结果：`BenchmarkReorderHTTP1HeaderBlock` 从 1.11–1.19 us、1488 B、40 allocs/op 降为 0.49–0.53 us、1152 B、4 allocs/op；复用连接的端到端 H1 请求从 135 降为 105 allocs/op，约 10.45 KiB 降为 9.83 KiB。端到端耗时受本机调度影响，只把稳定的分配和独立热点结果作为本批证据，不据此声明跨平台吞吐提升。
+
+优化版通过根模块十轮回归、关键 H1/取消/选项隔离一百轮回归，并以临时 Go workspace 注入 Fetch、JSON-RPC、gRPC、MITM：三仓各五轮及四进程组合三轮均通过，未修改消费者依赖文件。Windows 本机缺少 Go race 所需的兼容 C 工具链；竞态仍由 Ubuntu Action 门禁执行，不能把普通测试或交叉编译记为 race 已通过。

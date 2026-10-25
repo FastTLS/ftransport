@@ -261,24 +261,31 @@ func (t *Transport) newHTTP2Transport(custom bool) *http2.Transport {
 			Exclusive: priority.Exclusive,
 		}
 	}
+	staticPseudoOrder := make([]string, len(t.config.HTTP2.PseudoHeaderOrder))
+	for index, name := range t.config.HTTP2.PseudoHeaderOrder {
+		staticPseudoOrder[index] = string(name)
+	}
+	staticHeaderOptions := http2.HeaderOptions{
+		PseudoHeaderOrder: staticPseudoOrder,
+		HeaderOrder:       t.config.HTTP2.HeaderOrder,
+	}
 	base.RequestHeaderOptions = func(request *http.Request) http2.HeaderOptions {
-		options, _ := RequestOptionsFromRequest(request)
-		pseudoOrder := t.config.HTTP2.PseudoHeaderOrder
+		options, _ := requestOptionsValueFromRequest(request)
+		pseudoOrder := staticHeaderOptions.PseudoHeaderOrder
 		if options.PseudoHeaderOrder != nil {
-			pseudoOrder = options.PseudoHeaderOrder
+			pseudoOrder = make([]string, len(options.PseudoHeaderOrder))
+			for index, name := range options.PseudoHeaderOrder {
+				pseudoOrder[index] = string(name)
+			}
 		}
-		headerOrder := t.config.HTTP2.HeaderOrder
+		headerOrder := staticHeaderOptions.HeaderOrder
 		if options.HeaderOrder != nil {
 			headerOrder = options.HeaderOrder
 		}
-		pseudo := make([]string, len(pseudoOrder))
-		for index, name := range pseudoOrder {
-			pseudo[index] = string(name)
-		}
 		return http2.HeaderOptions{
-			PseudoHeaderOrder: pseudo,
-			HeaderOrder:       slices.Clone(headerOrder),
-			SensitiveHeaders:  slices.Clone(options.SensitiveHeaders),
+			PseudoHeaderOrder: pseudoOrder,
+			HeaderOrder:       headerOrder,
+			SensitiveHeaders:  options.SensitiveHeaders,
 		}
 	}
 	return base
@@ -430,7 +437,7 @@ func (t *Transport) RoundTrip(request *http.Request) (*http.Response, error) {
 		closeRequestBody(request)
 		return nil, &OperationError{Operation: "round trip", Protocol: t.protocol, Err: errors.New("nil request URL")}
 	}
-	if options, ok := RequestOptionsFromRequest(request); ok && requestOptionsPresent(options) {
+	if options, ok := requestOptionsValueFromRequest(request); ok && requestOptionsPresent(options) {
 		if !t.wireOpts {
 			closeRequestBody(request)
 			return nil, &UnsupportedFeatureError{Feature: "per-request wire options require exactly one explicit protocol"}

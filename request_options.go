@@ -36,11 +36,20 @@ func WithRequestOptions(req *http.Request, options RequestOptions) (*http.Reques
 
 // RequestOptionsFromRequest returns a defensive copy of request options.
 func RequestOptionsFromRequest(req *http.Request) (RequestOptions, bool) {
+	options, ok := requestOptionsValueFromRequest(req)
+	return options.clone(), ok
+}
+
+// requestOptionsValueFromRequest returns the immutable value stored by
+// WithRequestOptions. Internal callers may inspect its slices but must not
+// modify them; the exported accessor above retains its defensive-copy
+// contract for callers outside this package.
+func requestOptionsValueFromRequest(req *http.Request) (RequestOptions, bool) {
 	if req == nil {
 		return RequestOptions{}, false
 	}
 	options, ok := req.Context().Value(requestOptionsContextKey{}).(RequestOptions)
-	return options.clone(), ok
+	return options, ok
 }
 
 func (o RequestOptions) clone() RequestOptions {

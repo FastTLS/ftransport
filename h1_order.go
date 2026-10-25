@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 )
@@ -22,7 +21,7 @@ type orderedH1Transport struct {
 
 func (transport *orderedH1Transport) RoundTrip(request *http.Request) (*http.Response, error) {
 	order := transport.staticOrder
-	if options, ok := RequestOptionsFromRequest(request); ok && options.HeaderOrder != nil {
+	if options, ok := requestOptionsValueFromRequest(request); ok && options.HeaderOrder != nil {
 		order = options.HeaderOrder
 	}
 
@@ -142,7 +141,7 @@ func (conn *orderedH1Conn) prepare(order []string) {
 	conn.mu.Lock()
 	conn.awaitingHeader = true
 	conn.headerBuffer = conn.headerBuffer[:0]
-	conn.order = slices.Clone(order)
+	conn.order = order
 	conn.mu.Unlock()
 }
 
@@ -170,9 +169,7 @@ func (conn *orderedH1Conn) Write(input []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	output := make([]byte, 0, len(rewritten)+len(conn.headerBuffer)-end)
-	output = append(output, rewritten...)
-	output = append(output, conn.headerBuffer[end:]...)
+	output := append(rewritten, conn.headerBuffer[end:]...)
 	conn.headerBuffer = nil
 	conn.awaitingHeader = false
 	if err := writeFull(conn.Conn, output); err != nil {
@@ -189,8 +186,9 @@ func (conn *orderedH1Conn) ConnectionState() tls.ConnectionState {
 }
 
 type h1HeaderLine struct {
-	raw       []byte
-	lowerName string
+	raw          []byte
+	name         []byte
+	selectedName string
 }
 
 func reorderH1HeaderBlock(block []byte, order []string) ([]byte, error) {
@@ -208,21 +206,19 @@ func reorderH1HeaderBlock(block []byte, order []string) ([]byte, error) {
 			return nil, errors.New("ftransport: malformed HTTP/1.1 header field")
 		}
 		headerLines = append(headerLines, h1HeaderLine{
-			raw:       slices.Clone(line),
-			lowerName: strings.ToLower(string(line[:colon])),
+			raw:  line,
+			name: line[:colon],
 		})
 	}
 
 	used := make([]bool, len(headerLines))
 	ordered := make([]h1HeaderLine, 0, len(headerLines))
 	for _, requested := range order {
-		lower := strings.ToLower(requested)
 		for index, line := range headerLines {
-			if used[index] || line.lowerName != lower {
+			if used[index] || !equalFoldASCII(line.name, requested) {
 				continue
 			}
-			colon := bytes.IndexByte(line.raw, ':')
-			line.raw = append(append([]byte{}, requested...), line.raw[colon:]...)
+			line.selectedName = requested
 			ordered = append(ordered, line)
 			used[index] = true
 		}
@@ -238,11 +234,35 @@ func reorderH1HeaderBlock(block []byte, order []string) ([]byte, error) {
 	output.Write(lines[0])
 	output.WriteString("\r\n")
 	for _, line := range ordered {
-		output.Write(line.raw)
+		if line.selectedName == "" {
+			output.Write(line.raw)
+		} else {
+			output.WriteString(line.selectedName)
+			output.Write(line.raw[len(line.name):])
+		}
 		output.WriteString("\r\n")
 	}
 	output.WriteString("\r\n")
 	return output.Bytes(), nil
+}
+
+func equalFoldASCII(value []byte, target string) bool {
+	if len(value) != len(target) {
+		return false
+	}
+	for index, left := range value {
+		right := target[index]
+		if left >= 'A' && left <= 'Z' {
+			left += 'a' - 'A'
+		}
+		if right >= 'A' && right <= 'Z' {
+			right += 'a' - 'A'
+		}
+		if left != right {
+			return false
+		}
+	}
+	return true
 }
 
 func writeFull(writer io.Writer, data []byte) error {
