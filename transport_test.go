@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/http/httptrace"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -40,6 +41,61 @@ func TestNewTransportAcceptsImplementedWireConfigOffline(t *testing.T) {
 	defer transport.Close()
 	if got := dials.Load(); got != 0 {
 		t.Fatalf("dial count = %d, want 0", got)
+	}
+}
+
+func TestHTTP1CancellationClosesUpstreamRequest(t *testing.T) {
+	started := make(chan struct{})
+	canceled := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		_, _ = io.Copy(io.Discard, request.Body)
+		_ = request.Body.Close()
+		close(started)
+		select {
+		case <-request.Context().Done():
+			close(canceled)
+		case <-time.After(5 * time.Second):
+		}
+	}))
+	defer server.Close()
+
+	transport, err := NewTransport(Config{Protocols: []Protocol{ProtocolHTTP1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transport.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL, strings.NewReader("payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestDone := make(chan error, 1)
+	go func() {
+		response, requestErr := transport.RoundTrip(request)
+		if response != nil {
+			response.Body.Close()
+		}
+		requestDone <- requestErr
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("upstream request did not start")
+	}
+	cancel()
+	select {
+	case err := <-requestDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("round trip error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("round trip did not return after cancellation")
+	}
+	select {
+	case <-canceled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("upstream request context was not canceled")
 	}
 }
 
