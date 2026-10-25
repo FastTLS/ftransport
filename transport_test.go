@@ -271,6 +271,7 @@ func TestStandardHTTP2NegotiationAndReuse(t *testing.T) {
 	t.Parallel()
 
 	var accepts atomic.Int64
+	var closes atomic.Int64
 	var protocolsMu sync.Mutex
 	var protocols []string
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -283,6 +284,9 @@ func TestStandardHTTP2NegotiationAndReuse(t *testing.T) {
 	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
 		if state == http.StateNew {
 			accepts.Add(1)
+		}
+		if state == http.StateClosed {
+			closes.Add(1)
 		}
 	}
 	server.StartTLS()
@@ -321,7 +325,10 @@ func TestStandardHTTP2NegotiationAndReuse(t *testing.T) {
 	if got := accepts.Load(); got != 1 {
 		t.Fatalf("accepted connections = %d, want 1", got)
 	}
-	transport.CloseIdleConnections()
+	waitFor(t, 5*time.Second, func() bool {
+		transport.CloseIdleConnections()
+		return closes.Load() == 1
+	})
 	response, err := client.Get(server.URL + "/after-close-idle")
 	if err != nil {
 		t.Fatal(err)
@@ -398,6 +405,7 @@ func TestCustomUTLSHTTP2HandoffAndReuse(t *testing.T) {
 	t.Parallel()
 
 	var accepts atomic.Int64
+	var closes atomic.Int64
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		_, _ = io.WriteString(response, request.URL.Path)
 	}))
@@ -405,6 +413,9 @@ func TestCustomUTLSHTTP2HandoffAndReuse(t *testing.T) {
 	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
 		if state == http.StateNew {
 			accepts.Add(1)
+		}
+		if state == http.StateClosed {
+			closes.Add(1)
 		}
 	}
 	server.StartTLS()
@@ -462,7 +473,14 @@ func TestCustomUTLSHTTP2HandoffAndReuse(t *testing.T) {
 	if got := accepts.Load(); got != 1 {
 		t.Fatalf("accepted connections = %d, want 1", got)
 	}
-	transport.CloseIdleConnections()
+	// Releasing the request context at EOF lets stream cleanup finish
+	// asynchronously. CloseIdleConnections only acts on connections that are
+	// idle at that instant; wait for the peer to observe the idle close before
+	// checking that the next request uses a new connection.
+	waitFor(t, 5*time.Second, func() bool {
+		transport.CloseIdleConnections()
+		return closes.Load() == 1
+	})
 	response, err := client.Get("https://example.com/after-close-idle")
 	if err != nil {
 		t.Fatal(err)
