@@ -51,6 +51,8 @@ func run() error {
 - 本库不提供浏览器配置生成、JavaScript 执行或 HTTP/3。标准 net/http 类型兼容不等于与其所有内部行为完全相同。
 - 定制 H2 支持每 origin 连接上限、空闲超时及完整关闭；独立最大空闲连接计数尚不支持，非零配置会拒绝。
 
+开发分支另包含 H2 preface / 初始帧写入阶段的有界取消、失败上传源关闭及后续等待者恢复。验证见 `dial_cancellation_test.go`；该改动尚未进入正式标签。
+
 ## 进阶与维护
 
 [设计与配置](DESIGN.md) · [协议探针](PROBES.md) · [迁移](MIGRATION.md) · [来源与许可证映射](SOURCES.md)。[实施规划](IMPLEMENTATION_PLAN.md) 是历史维护资料，实际发布以标签为准。

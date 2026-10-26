@@ -431,7 +431,27 @@ func (t *Transport) dialClientConn(ctx context.Context, addr string, singleUse b
 	if err != nil {
 		return nil, err
 	}
-	return t.newClientConn(tconn, singleUse, nil)
+	// TLS is complete, but the HTTP/2 preface and initial frames can still
+	// block on a peer that does not read. Keep the dial context in force until
+	// initialization finishes; otherwise an abandoned dial poisons the shared
+	// pool entry and prevents later requests from reconnecting.
+	closed := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		tconn.SetDeadline(time.Now())
+		tconn.Close()
+		close(closed)
+	})
+	cc, err := t.newClientConn(tconn, singleUse, nil)
+	if !stop() {
+		<-closed // Never let a late callback close a successfully pooled conn.
+	}
+	if ctx.Err() != nil {
+		if cc != nil {
+			cc.Close()
+		}
+		return nil, ctx.Err()
+	}
+	return cc, err
 }
 
 func (t *Transport) newTLSConfig(host string) *tls.Config {

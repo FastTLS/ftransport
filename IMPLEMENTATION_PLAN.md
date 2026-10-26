@@ -2,6 +2,8 @@
 
 # ftransport 实施与交接规划
 
+> 归档说明：F0–F4 已完成，正式版本为 [`v0.1.0`](https://github.com/FastTLS/ftransport/releases/tag/v0.1.0)。本文保留实施边界、旧候选基线和验收依据；当前状态以 README、公开 API 与 GitHub Release 为准。
+
 日期：2026-10-24。状态：执行中。F0–F3 已有实现和本地证据，详见 README、DESIGN、MIGRATION 与 PROBES；F4 发布验证仍是计划。本文继续作为完整验收要求，只有对应代码和测试证据可以代表现有能力。
 
 ## 1. 项目目标与成功标准
