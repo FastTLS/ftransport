@@ -1,6 +1,6 @@
 # fastls 到 ftransport 的类型迁移清单
 
-状态：F3 本地集成候选已完成。fastls 使用 `codex/ftransport-f3` 隔离工作树，FFI 使用同名隔离分支；旧主工作树未被覆盖。
+归档状态：迁移及 F4 发布验证已完成。`ftransport v0.1.0`、`fastls v0.1.1` 和 `fastls-ffi v0.1.2` 已正式发布；下文保留迁移时的工作树和验证记录。
 
 ## 已核对基线
 

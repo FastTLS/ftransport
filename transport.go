@@ -485,6 +485,12 @@ func (t *Transport) RoundTrip(request *http.Request) (*http.Response, error) {
 	}
 	response, roundTripErr := t.base.RoundTrip(clone)
 	if roundTripErr != nil {
+		// HTTP/2 pool acquisition can fail before a stream takes ownership of
+		// the upload. Close it here as well, so producers and active tracking
+		// cannot outlive a failed connection attempt.
+		if upload != nil {
+			_ = upload.Close()
+		}
 		lifecycle.responseFinished()
 		t.stats.failed.Add(1)
 		return nil, &OperationError{Operation: "round trip", Protocol: t.protocol, Err: classifyClose(ctx, roundTripErr)}
@@ -498,6 +504,9 @@ func (t *Transport) RoundTrip(request *http.Request) (*http.Response, error) {
 		return nil, &OperationError{Operation: "round trip", Protocol: t.protocol, Err: ErrTransportClosed}
 	}
 	if response == nil || response.Body == nil {
+		if upload != nil {
+			_ = upload.Close()
+		}
 		lifecycle.responseFinished()
 		t.stats.failed.Add(1)
 		return nil, &OperationError{Operation: "round trip", Protocol: t.protocol, Err: errors.New("underlying transport returned a nil response or body")}

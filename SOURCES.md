@@ -31,6 +31,8 @@
 - 逐文件来源和本地哈希：`third_party/xnet/MANIFEST.sha256`。修改目的与重放步骤：`third_party/xnet/README.ftransport.md`。
 - 本地差异：Go 1.27+ 固定 legacy 客户端路径；增加有序/显式空 SETTINGS、接收窗口一致性、初始与 HEADERS priority、有序 HPACK 和敏感字段、显式零头列表限制，以及每 authority 连接上限与可独立取消的流槽等待。未复制 fhttp 源码。
 
+2026-10-26：补齐 HTTP/2 preface/初始帧写入期间的拨号取消，防止已取消拨号继续占用连接池建连条目；生产副本、来源快照和本地摘要同步更新。上游原始摘要保留不变。
+
 ## uTLS
 
 - 来源：`https://github.com/refraction-networking/utls`

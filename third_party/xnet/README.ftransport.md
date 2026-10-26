@@ -29,6 +29,8 @@ Local changes are restricted to `http2`:
   zero-means-default API convention;
 - cap pooled connections per authority and let each excess waiter cancel with
   its own request context while waiting for any stream slot to become free.
+- retain dial cancellation through the HTTP/2 preface and initial frame writes;
+  close an abandoned connection before retrying for a live pool waiter.
 
 To update the snapshot, download the pinned replacement version, copy the same
 package closure without test files (including `proxy`, `publicsuffix`, and
