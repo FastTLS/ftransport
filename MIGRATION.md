@@ -1,3 +1,5 @@
+> 历史迁移记录：下文 F3 工作树/阶段状态用于追溯。当前用户安装与限制以 [README](README.md) 和发布标签为准。
+
 # fastls 到 ftransport 的类型迁移清单
 
 状态：F3 本地集成候选已完成。fastls 使用 `codex/ftransport-f3` 隔离工作树，FFI 使用同名隔离分支；旧主工作树未被覆盖。
