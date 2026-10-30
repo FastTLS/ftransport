@@ -237,10 +237,16 @@ func TestHTTP2ConfiguredFirstStreamGoAwayRetry(t *testing.T) {
 								}
 								if attempt == 1 {
 									fr.WriteGoAway(0, code, nil)
-									return
+								} else {
+									fr.WriteHeaders(http2.HeadersFrameParam{StreamID: 3, BlockFragment: []byte{0x88}, EndHeaders: true, EndStream: true})
 								}
-								fr.WriteHeaders(http2.HeadersFrameParam{StreamID: 3, BlockFragment: []byte{0x88}, EndHeaders: true, EndStream: true})
-								return
+								// Drain client SETTINGS acknowledgments until it closes;
+								// closing with unread TCP data can discard GOAWAY on Windows.
+								for {
+									if _, err := fr.ReadFrame(); err != nil {
+										return
+									}
+								}
 							}
 						}
 					}()
