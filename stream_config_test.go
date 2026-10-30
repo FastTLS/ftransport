@@ -193,11 +193,24 @@ func serveStreamCredit(conn net.Conn, first uint32, payload []byte, exhausted bo
 func TestHTTP2ConfiguredFirstStreamGoAwayRetry(t *testing.T) {
 	for _, code := range []http2.ErrCode{http2.ErrCodeNo, http2.ErrCodeProtocol} {
 		t.Run(fmt.Sprint(code), func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
 			var dials atomic.Int32
 			tr, err := NewTransport(Config{Protocols: []Protocol{ProtocolHTTP2}, HTTP2: HTTP2Config{FirstStreamID: 3},
 				DialContext: func(ctx context.Context, _ DialRequest) (DialResult, error) {
 					attempt := dials.Add(1)
-					client, server := net.Pipe()
+					client, err := (&net.Dialer{}).DialContext(ctx, "tcp", listener.Addr().String())
+					if err != nil {
+						return DialResult{}, err
+					}
+					server, err := listener.Accept()
+					if err != nil {
+						client.Close()
+						return DialResult{}, err
+					}
 					go func() {
 						defer server.Close()
 						server.SetDeadline(time.Now().Add(5 * time.Second))
@@ -206,7 +219,7 @@ func TestHTTP2ConfiguredFirstStreamGoAwayRetry(t *testing.T) {
 							return
 						}
 						fr := http2.NewFramer(server, server)
-						// Read client preface before writing: net.Pipe has no buffering.
+						// Read the client preface before responding.
 						if _, err := fr.ReadFrame(); err != nil {
 							return
 						}
