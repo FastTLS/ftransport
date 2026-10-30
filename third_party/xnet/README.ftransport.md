@@ -15,6 +15,11 @@ preserved.
 
 Local changes are restricted to `http2`:
 
+- configure the first odd request stream ID per connection and one initial
+  stream WINDOW_UPDATE after request HEADERS, with matching receive credit;
+  retain fresh-connection, single-use, GOAWAY and ID-exhaustion semantics;
+  explicitly reject these options in the optional standard-library wrapper;
+
 - select the auditable legacy implementation on Go 1.27 and later instead of
   the unexported standard-library wrapper;
 - accept an exact ordered initial SETTINGS list, including explicit empty and

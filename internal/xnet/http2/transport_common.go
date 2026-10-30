@@ -206,6 +206,11 @@ type Transport struct {
 	// written after InitialSettings. Zero writes no WINDOW_UPDATE.
 	ConnectionWindowIncrement uint32
 
+	// FirstStreamID defaults to 1. StreamWindowIncrement is additional receive
+	// credit sent once after each request's initial HEADERS, never its trailers.
+	FirstStreamID         uint32
+	StreamWindowIncrement uint32
+
 	// MaxConnectionsPerHost limits pooled client connections per authority.
 	// Once the limit is reached, requests wait for stream capacity on an
 	// existing connection instead of starting another dial.

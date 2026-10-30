@@ -21,6 +21,8 @@ import (
 	"time"
 )
 
+const SupportsStreamConfig = false
+
 func configureTransport(t1 *http.Transport) error {
 	_, err := configureTransports(t1)
 	return err

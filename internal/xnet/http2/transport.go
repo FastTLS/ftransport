@@ -40,6 +40,7 @@ import (
 )
 
 const (
+	SupportsStreamConfig = true
 	// transportDefaultConnFlow is how many connection-level flow control
 	// tokens we give the server at start-up, past the default 64k.
 	transportDefaultConnFlow = 1 << 30
@@ -219,6 +220,7 @@ type ClientConn struct {
 	streams          map[uint32]*clientStream // client-initiated
 	streamsReserved  int                      // incr by ReserveNewRequest; decr on RoundTrip
 	nextStreamID     uint32
+	firstStreamID    uint32                    // first request ID, independent of whether the connection was used
 	pendingRequests  int                       // requests blocked and waiting to be sent because len(streams) == maxConcurrentStreams
 	pings            map[[8]byte]chan struct{} // in flight ping data to notification channel
 	br               *bufio.Reader
@@ -487,11 +489,16 @@ func (t *Transport) newUserClientConn(c net.Conn) (*ClientConn, error) {
 
 func (t *Transport) newClientConn(c net.Conn, singleUse bool, internalStateHook func()) (*ClientConn, error) {
 	conf := configFromTransport(t)
+	firstStreamID := t.FirstStreamID
+	if firstStreamID == 0 {
+		firstStreamID = 1
+	}
 	cc := &ClientConn{
 		t:                           t,
 		tconn:                       c,
 		readerDone:                  make(chan struct{}),
-		nextStreamID:                1,
+		nextStreamID:                firstStreamID,
+		firstStreamID:               firstStreamID,
 		maxFrameSize:                16 << 10, // spec default
 		initialStreamRecvWindowSize: conf.MaxUploadBufferPerStream,
 		maxConcurrentStreams:        initialMaxConcurrentStreams, // "infinite", per spec. Use a smaller value until we have received server settings.
@@ -645,7 +652,7 @@ func (cc *ClientConn) setGoAway(f *GoAwayFrame) {
 			// without doing so. Either way, leave the stream alone for now.
 			continue
 		}
-		if streamID == 1 && cc.goAway.ErrCode != ErrCodeNo {
+		if streamID == cc.firstStreamID && cc.goAway.ErrCode != ErrCodeNo {
 			// Don't retry the first stream on a connection if we get a non-NO error.
 			// If the server is sending an error on a new connection,
 			// retrying the request on a new one probably isn't going to work.
@@ -708,7 +715,7 @@ func (cc *ClientConn) idleState() clientConnIdleState {
 }
 
 func (cc *ClientConn) idleStateLocked() (st clientConnIdleState) {
-	if cc.singleUse && cc.nextStreamID > 1 {
+	if cc.singleUse && cc.nextStreamID != cc.firstStreamID {
 		return
 	}
 	var maxConcurrentOkay bool
@@ -737,7 +744,7 @@ func (cc *ClientConn) idleStateLocked() (st clientConnIdleState) {
 	//
 	// This avoids a situation where an error early in a connection's lifetime
 	// goes unreported.
-	if cc.nextStreamID == 1 && cc.streamsReserved == 0 && cc.closed && !cc.closedOnIdle {
+	if cc.nextStreamID == cc.firstStreamID && cc.streamsReserved == 0 && cc.closed && !cc.closedOnIdle {
 		st.canTakeNewRequest = true
 	}
 
@@ -749,7 +756,7 @@ func (cc *ClientConn) isUsableLocked() bool {
 		!cc.closed &&
 		!cc.closing &&
 		!cc.doNotReuse &&
-		int64(cc.nextStreamID)+2*int64(cc.pendingRequests) < math.MaxInt32 &&
+		int64(cc.nextStreamID)+2*int64(cc.pendingRequests) <= math.MaxInt32 &&
 		!cc.tooIdleLocked()
 }
 
@@ -1332,6 +1339,12 @@ func (cs *clientStream) encodeAndWriteHeaders(req *http.Request) error {
 	endStream := !res.HasBody && !res.HasTrailers
 	cs.sentHeaders = true
 	err = cc.writeHeaders(cs.ID, endStream, int(cc.maxFrameSize), hdrs, cc.t.HeaderPriority)
+	if err == nil && cc.t.StreamWindowIncrement != 0 {
+		err = cc.fr.WriteWindowUpdate(cs.ID, cc.t.StreamWindowIncrement)
+		if err == nil {
+			err = cc.bw.Flush()
+		}
+	}
 	traceWroteHeaders(cs.trace)
 	return err
 }
@@ -1466,7 +1479,7 @@ func (cs *clientStream) cleanupWriteRequest(err error) {
 // Must hold cc.mu.
 func (cc *ClientConn) awaitOpenSlotForStreamLocked(cs *clientStream) error {
 	for {
-		if cc.closed && cc.nextStreamID == 1 && cc.streamsReserved == 0 {
+		if cc.closed && cc.nextStreamID == cc.firstStreamID && cc.streamsReserved == 0 {
 			// This is the very first request sent to this connection.
 			// Return a fatal error which aborts the retry loop.
 			return errClientConnNotEstablished
@@ -1853,7 +1866,9 @@ type resAndError struct {
 // requires cc.mu be held.
 func (cc *ClientConn) addStreamLocked(cs *clientStream) {
 	cs.flow.conn = &cc.flow
-	cs.inflow.init(cc.initialStreamRecvWindowSize)
+	// Credit must be available before publishing HEADERS: the reader can run
+	// as soon as the peer sees them. The write lock orders HEADERS then update.
+	cs.inflow.init(cc.initialStreamRecvWindowSize + int32(cc.t.StreamWindowIncrement))
 	cs.ID = cc.nextStreamID
 	cc.nextStreamID += 2
 	cc.streams[cs.ID] = cs

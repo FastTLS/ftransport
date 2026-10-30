@@ -77,6 +77,12 @@ type HTTP1Config struct {
 // HTTP2Config controls the frames sent when a new HTTP/2 connection starts and
 // the connection-identity header encoding behavior.
 type HTTP2Config struct {
+	// FirstStreamID is the first request stream on each physical connection.
+	// Zero selects 1; other values must be odd and at most 2^31-1.
+	FirstStreamID uint32
+	// StreamWindowIncrement adds receive credit once, after each request's
+	// initial HEADERS. Zero sends no stream WINDOW_UPDATE.
+	StreamWindowIncrement     uint32
 	InitialSettings           HTTP2Settings
 	ConnectionWindowIncrement uint32
 	PriorityFrames            []HTTP2PriorityFrame
@@ -272,6 +278,21 @@ func validateProtocols(protocols []Protocol) error {
 }
 
 func (c HTTP2Config) validate() error {
+	if c.FirstStreamID != 0 && (c.FirstStreamID%2 == 0 || c.FirstStreamID > 0x7fffffff) {
+		return errors.New("ftransport: invalid HTTP/2 first request stream ID")
+	}
+	streamWindow := uint32(4 << 20)
+	if c.InitialSettings.Present {
+		streamWindow = 65535
+		for _, setting := range c.InitialSettings.Values {
+			if setting.ID == SettingInitialWindowSize {
+				streamWindow = setting.Value
+			}
+		}
+	}
+	if uint64(streamWindow)+uint64(c.StreamWindowIncrement) > 0x7fffffff {
+		return errors.New("ftransport: HTTP/2 stream receive window exceeds the 31-bit maximum")
+	}
 	if !c.InitialSettings.Present && c.InitialSettings.Values != nil {
 		return errors.New("ftransport: HTTP/2 settings values require Present=true")
 	}

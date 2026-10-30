@@ -44,6 +44,14 @@ func run() error {
 
 ## 支持与限制
 
+### H2 流级配置
+
+`HTTP2Config.FirstStreamID` 为每个物理连接的首个请求流编号；`0` 或省略选择 `1`，其它值须为不超过 `2^31-1` 的奇数，后续请求每次增加 2。不会发送占位请求；编号耗尽后换连接。
+
+`StreamWindowIncrement` 在每个请求的初始 HEADERS（含全部 CONTINUATION）之后发送一次流 WINDOW_UPDATE，增加相同数量的实际接收额度；不会因请求 Trailer 再发一次。`0` 不发送。与 SETTINGS_INITIAL_WINDOW_SIZE 的和不得超过 `2^31-1`，配置会在拨号前校验。增加额度也增加单流可能缓冲的响应数据量，调用方应结合并发上限选择预算。
+
+配置指纹参数须显式选择 `Protocols: []ftransport.Protocol{ftransport.ProtocolHTTP2}`。可选 `ftransport_http2_stdwrap` 后端不支持这两项，并明确拒绝配置。默认值与未配置的旧请求行为保持兼容。
+
 - 并发安全的 RoundTripper，H1/H2 连接复用、流式读取、取消和关闭。
 - H1 有序头；H2 显式有序/空 SETTINGS、连接窗口、PRIORITY、HEADERS priority、伪头/普通头顺序和 HPACK never-indexed。
 - 默认标准 TLS 验证；默认不读取环境代理，也不自动解压响应。

@@ -87,6 +87,9 @@ func NewTransport(config Config) (*Transport, error) {
 	if err := config.Validate(); err != nil {
 		return nil, &ConfigError{Err: err}
 	}
+	if !http2.SupportsStreamConfig && (config.HTTP2.FirstStreamID != 0 || config.HTTP2.StreamWindowIncrement != 0) {
+		return nil, &UnsupportedFeatureError{Feature: "HTTP/2 stream configuration"}
+	}
 	protocols := resolvedProtocols(config.Protocols)
 	if err := validateWireProtocolSelection(config, protocols); err != nil {
 		return nil, &ConfigError{Field: "Protocols", Err: err}
@@ -153,7 +156,7 @@ func validateWireProtocolSelection(config Config, protocols []Protocol) error {
 }
 
 func hasHTTP2WireConfig(config HTTP2Config) bool {
-	return config.InitialSettings.Present ||
+	return config.FirstStreamID != 0 || config.StreamWindowIncrement != 0 || config.InitialSettings.Present ||
 		config.ConnectionWindowIncrement != 0 ||
 		len(config.PriorityFrames) != 0 ||
 		config.HeaderPriority != nil ||
@@ -225,6 +228,8 @@ func (t *Transport) newStandardTransport(protocols []Protocol, custom customDial
 
 func (t *Transport) newHTTP2Transport(custom bool) *http2.Transport {
 	base := &http2.Transport{
+		FirstStreamID:             t.config.HTTP2.FirstStreamID,
+		StreamWindowIncrement:     t.config.HTTP2.StreamWindowIncrement,
 		DisableCompression:        true,
 		IdleConnTimeout:           t.config.Pool.IdleConnectionTimeout,
 		ConnectionWindowIncrement: t.config.HTTP2.ConnectionWindowIncrement,
